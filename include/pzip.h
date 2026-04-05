@@ -27,16 +27,16 @@ extern "C" {
 typedef struct pzip_ctx pzip_ctx_t;
 
 typedef enum pzip_status {
-    PZIP_OK = 0,
-    PZIP_E_INVALID_ARG = -22,
-    PZIP_E_NO_MEMORY = -12,
-    PZIP_E_IO = -5,
-    PZIP_E_NOT_FOUND = -2,
-    PZIP_E_BUSY = -16,
-    PZIP_E_CANCELED = -125,
-    PZIP_E_INTERNAL = -10000,
-    PZIP_E_CODEC = -10001,
-    PZIP_E_NOT_SUPPORTED = -10002
+    PZIP_OK                 = 0,
+    PZIP_E_INVALID_ARG      = -22,
+    PZIP_E_NO_MEMORY        = -12,
+    PZIP_E_IO               = -5,
+    PZIP_E_NOT_FOUND        = -2,
+    PZIP_E_BUSY             = -16,
+    PZIP_E_CANCELED         = -125,
+    PZIP_E_INTERNAL         = -10000,
+    PZIP_E_CODEC            = -10001,
+    PZIP_E_NOT_SUPPORTED    = -10002
 } pzip_status_t;
 
 typedef enum pzip_codec_flags {
@@ -89,12 +89,12 @@ typedef struct pzip_encryption_config {
 } pzip_encryption_config_t;
 
 typedef struct pzip_options {
-    uint32_t abi_version;
-    uint32_t thread_count;
-    uint32_t chunk_size_kb;
-    uint32_t enable_solid_mode;
-    uint32_t max_file_count;
-    uint64_t max_total_input_bytes;
+    uint32_t abi_version;           // 结构体 ABI 兼容版本
+    uint32_t thread_count;          // 线程数，0 表示自动选择
+    uint32_t chunk_size_kb;         // 分块大小，0 表示库默认值
+    uint32_t enable_solid_mode;     // 预留的 solid 模式开关
+    uint32_t max_file_count;        // 最大输入文件数
+    uint64_t max_total_input_bytes; // 输入总大小上限
     uint32_t reserve[10];
 } pzip_options_t;
 
