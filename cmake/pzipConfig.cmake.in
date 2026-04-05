@@ -1,0 +1,20 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(NOT @PZIP_USE_BUNDLED_ZLIB@)
+	find_dependency(ZLIB)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/pzipTargets.cmake")
+
+if(NOT TARGET pzip::pzip)
+	add_library(pzip::pzip INTERFACE IMPORTED)
+	if(TARGET pzip::pzip_static)
+		set_property(TARGET pzip::pzip PROPERTY INTERFACE_LINK_LIBRARIES pzip::pzip_static)
+	elseif(TARGET pzip::pzip_shared)
+		set_property(TARGET pzip::pzip PROPERTY INTERFACE_LINK_LIBRARIES pzip::pzip_shared)
+	endif()
+endif()
+
+check_required_components(pzip)
