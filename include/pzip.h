@@ -89,12 +89,12 @@ typedef struct pzip_encryption_config {
 } pzip_encryption_config_t;
 
 typedef struct pzip_options {
-    uint32_t abi_version;           // 结构体 ABI 兼容版本
-    uint32_t thread_count;          // 线程数，0 表示自动选择
-    uint32_t chunk_size_kb;         // 分块大小，0 表示库默认值
-    uint32_t enable_solid_mode;     // 预留的 solid 模式开关
-    uint32_t max_file_count;        // 最大输入文件数
-    uint64_t max_total_input_bytes; // 输入总大小上限
+    uint32_t abi_version;           // Struct ABI compatibility version.
+    uint32_t thread_count;          // Worker thread count, 0 means auto-select.
+    uint32_t chunk_size_kb;         // Chunk size in KiB, 0 means library default.
+    uint32_t enable_solid_mode;     // Reserved solid-mode switch.
+    uint32_t max_file_count;        // Maximum number of input files.
+    uint64_t max_total_input_bytes; // Upper limit for total input bytes.
     uint32_t reserve[10];
 } pzip_options_t;
 

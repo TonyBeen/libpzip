@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.15)
 
 project(pzip VERSION 1.0.0 LANGUAGES C CXX)
 
+if(MSVC)
+    # Force UTF-8 source/execution charset on Windows to avoid codepage warnings.
+    add_compile_options(
+        $<$<COMPILE_LANGUAGE:C>:/utf-8>
+        $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
+    )
+endif()
+
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

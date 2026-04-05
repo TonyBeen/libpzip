@@ -85,7 +85,7 @@ class PzipEngine {
     static std::string MakeRelativeEntry(const fs::path& path, const fs::path& base);
 
     static uint32_t Crc32(const uint8_t* data, size_t size);
-    pzip_status_t compressOne(size_t index, std::vector<class OutputFile>* outputs) const;
+    pzip_status_t compressOne(size_t index, std::vector<OutputFile>* outputs) const;
     pzip_status_t compressChunkTask(ChunkTask* chunkTask, WriteTask* writeTask) const;
 
     pzip_status_t validateReadyForRun() const;

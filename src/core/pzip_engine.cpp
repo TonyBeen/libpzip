@@ -445,18 +445,18 @@ pzip_status_t PzipEngine::run() {
         m_canceled.store(false);
     }
 
-    const uint32_t cpuThreads = std::max(1U, std::thread::hardware_concurrency());
-    const uint32_t defaultThreads = std::min(16U, cpuThreads);
+    const uint32_t cpuThreads = (std::max)(1U, std::thread::hardware_concurrency());
+    const uint32_t defaultThreads = (std::min)(16U, cpuThreads);
     const uint32_t threadCount = m_options.thread_count == 0 ? defaultThreads : m_options.thread_count;
     const size_t chunkBytes =
-        std::max<size_t>(1, static_cast<size_t>(m_options.chunk_size_kb) * static_cast<size_t>(1024));
-    const size_t queueCapacity = std::max<size_t>(4, static_cast<size_t>(threadCount) * 2);
+        (std::max<size_t>)(1, static_cast<size_t>(m_options.chunk_size_kb) * static_cast<size_t>(1024));
+    const size_t queueCapacity = (std::max<size_t>)(4, static_cast<size_t>(threadCount) * 2);
     const size_t defaultPendingBytesLimit =
-        std::max<size_t>(chunkBytes * static_cast<size_t>(threadCount) * 4, chunkBytes * 8);
-    const size_t pendingBytesLimit = std::max<size_t>(chunkBytes, std::min<size_t>(
+        (std::max<size_t>)(chunkBytes * static_cast<size_t>(threadCount) * 4, chunkBytes * 8);
+    const size_t pendingBytesLimit = (std::max<size_t>)(chunkBytes, (std::min<size_t>)(
                                                                   defaultPendingBytesLimit,
                                                                   static_cast<size_t>(m_options.max_total_input_bytes)));
-    const size_t pendingShardCount = std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(threadCount), 8));
+    const size_t pendingShardCount = (std::max<size_t>)(1, (std::min<size_t>)(static_cast<size_t>(threadCount), 8));
     const size_t maxFreeChunkBuffers = queueCapacity * 2;
 
     BlockingQueue<ChunkTask> chunkQueue(queueCapacity);
@@ -1040,7 +1040,7 @@ uint32_t PzipEngine::Crc32(const uint8_t* data, size_t size) {
     while (offset < size) {
         const size_t remaining = size - offset;
         const uInt chunk = static_cast<uInt>(
-            std::min<size_t>(remaining, static_cast<size_t>(std::numeric_limits<uInt>::max())));
+            (std::min<size_t>)(remaining, static_cast<size_t>(std::numeric_limits<uInt>::max())));
         crc = ::crc32(crc, reinterpret_cast<const Bytef*>(data + offset), chunk);
         offset += static_cast<size_t>(chunk);
     }
