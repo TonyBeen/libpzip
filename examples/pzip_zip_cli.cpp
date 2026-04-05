@@ -67,6 +67,10 @@ static const char* XorName(void* encryptionCtx) {
     return "xor-password";
 }
 
+static bool IsSupportedCodecName(const std::string& codecName) {
+    return codecName == "zlib" || codecName == "zstd" || codecName == "lz4";
+}
+
 static void PrintUsage(const char* argv0) {
     std::fprintf(stderr,
                  "Usage: %s [options] <archive.zip> <input1> [input2 ...]\n"
@@ -75,6 +79,7 @@ static void PrintUsage(const char* argv0) {
                  "  -p <password>      Enable password encryption\n"
                  "  -l <0-9>           zlib compression level (default: 6)\n"
                  "  -t <threads>       Worker thread count (0 = auto)\n"
+                 "  --codec <name>     Compression codec: zlib, zstd, or lz4 (default: zlib)\n"
                  "  --prefix <name>    Entry prefix for all inputs\n",
                  argv0);
 }
@@ -106,9 +111,11 @@ int main(int argc, char** argv) {
     std::vector<std::string> inputs;
     std::string archivePath;
     std::string entryPrefix;
+    std::string codecName = "zlib";
     std::string password;
     bool recursive = false;
     int compressionLevel = 6;
+    bool compressionLevelExplicit = false;
     int32_t errCode = 0;
     const char* errMsg = NULL;
 
@@ -128,8 +135,11 @@ int main(int argc, char** argv) {
             password = argv[++i];
         } else if (arg == "-l" && i + 1 < argc) {
             compressionLevel = std::atoi(argv[++i]);
+            compressionLevelExplicit = true;
         } else if (arg == "-t" && i + 1 < argc) {
             opt.thread_count = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--codec" && i + 1 < argc) {
+            codecName = argv[++i];
         } else if (arg == "--prefix" && i + 1 < argc) {
             entryPrefix = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
@@ -142,8 +152,14 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (archivePath.empty() || inputs.empty() || compressionLevel < 0 || compressionLevel > 9) {
+    if (archivePath.empty() || inputs.empty() || compressionLevel < 0 || compressionLevel > 9 ||
+        !IsSupportedCodecName(codecName)) {
         PrintUsage(argc > 0 ? argv[0] : "pzip-zip");
+        return 2;
+    }
+
+    if (codecName != "zlib" && compressionLevelExplicit) {
+        std::fprintf(stderr, "-l is only supported with --codec zlib\n");
         return 2;
     }
 
@@ -152,9 +168,25 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (pzip_make_default_zlib_codec(&codec) != PZIP_OK ||
-        pzip_set_codec(ctx, &codec, &compressionLevel) != PZIP_OK) {
-        std::fprintf(stderr, "failed to configure zlib codec level\n");
+    pzip_status_t codecStatus = PZIP_E_INVALID_ARG;
+    if (codecName == "zlib") {
+        codecStatus = pzip_make_default_zlib_codec(&codec);
+        if (codecStatus == PZIP_OK) {
+            codecStatus = pzip_set_codec(ctx, &codec, &compressionLevel);
+        }
+    } else if (codecName == "zstd") {
+        codecStatus = pzip_make_default_zstd_codec(&codec);
+        if (codecStatus == PZIP_OK) {
+            codecStatus = pzip_set_codec(ctx, &codec, NULL);
+        }
+    } else if (codecName == "lz4") {
+        codecStatus = pzip_make_default_lz4_codec(&codec);
+        if (codecStatus == PZIP_OK) {
+            codecStatus = pzip_set_codec(ctx, &codec, NULL);
+        }
+    }
+    if (codecStatus != PZIP_OK) {
+        std::fprintf(stderr, "failed to configure codec '%s'\n", codecName.c_str());
         pzip_destroy(ctx);
         return 1;
     }

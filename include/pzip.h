@@ -109,6 +109,8 @@ PZIP_API pzip_status_t pzip_make_default_zlib_codec(pzip_codec_vtable_t* out_cod
 
 PZIP_API pzip_status_t pzip_make_default_zstd_codec(pzip_codec_vtable_t* out_codec);
 
+PZIP_API pzip_status_t pzip_make_default_lz4_codec(pzip_codec_vtable_t* out_codec);
+
 PZIP_API pzip_status_t pzip_set_encryption(pzip_ctx_t* ctx,
                                            const pzip_encryption_vtable_t* encryption,
                                            void* encryption_user);

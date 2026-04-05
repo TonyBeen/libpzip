@@ -56,7 +56,8 @@
 - 通过 `pzip_set_codec` 可注入外部算法并覆盖默认 zlib。
 - 可通过 `pzip_make_default_zlib_codec` 获取默认 zlib 的 codec 函数表。
 - 已提供 `pzip_make_default_zstd_codec`，可显式切换到 zstd（ZIP method=93）。
-- `lz4` 由于 ZIP 标准 method 兼容性限制，当前处于待接入状态（不默认启用）。
+- 已提供 `pzip_make_default_lz4_codec`，使用 `pzip` 自定义 method 写入归档；可通过 C API 或示例 CLI 显式启用。
+- `lz4` 当前为 `pzip` 自定义 method，`libpzip` 可读写，但不承诺与通用 ZIP 工具互操作。
 
 ### 2.4 加密功能预留设计
 

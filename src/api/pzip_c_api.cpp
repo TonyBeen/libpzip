@@ -1,5 +1,6 @@
 #include <new>
 
+#include "codec/lz4_codec.h"
 #include "codec/zlib_codec.h"
 #include "codec/zstd_codec.h"
 #include "core/pzip_engine.h"
@@ -65,6 +66,14 @@ PZIP_API pzip_status_t pzip_make_default_zstd_codec(pzip_codec_vtable_t* out_cod
         return PZIP_E_INVALID_ARG;
     }
     *out_codec = pzip::codec::CreateZstdCodecVtable();
+    return PZIP_OK;
+}
+
+PZIP_API pzip_status_t pzip_make_default_lz4_codec(pzip_codec_vtable_t* out_codec) {
+    if (out_codec == NULL) {
+        return PZIP_E_INVALID_ARG;
+    }
+    *out_codec = pzip::codec::CreateLz4CodecVtable();
     return PZIP_OK;
 }
 

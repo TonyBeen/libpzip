@@ -26,7 +26,7 @@
 2. `lz4`
 - 路径：`third_party/lz4`
 - 用途：后续高吞吐压缩算法适配
-- 状态：已确认，待接入（ZIP method 兼容策略待定）
+- 状态：已接入默认 lz4 codec 工厂；当前采用 `pzip` 自定义 ZIP method，仅保证 `libpzip` 自身读写兼容
 
 3. `zstd`
 - 路径：`third_party/zstd`

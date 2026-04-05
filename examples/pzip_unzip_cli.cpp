@@ -63,10 +63,15 @@ static const char* XorName(void* encryptionCtx) {
     return "xor-password";
 }
 
+static bool IsSupportedCodecName(const std::string& codecName) {
+    return codecName == "zlib" || codecName == "zstd" || codecName == "lz4";
+}
+
 static void PrintUsage(const char* argv0) {
     std::fprintf(stderr,
                  "Usage: %s [options] <archive.zip> <output_dir>\n"
                  "Options:\n"
+                 "  --codec <name>     Decompression codec: zlib, zstd, or lz4 (default: zlib)\n"
                  "  -p <password>      Set password for decryption\n",
                  argv0);
 }
@@ -74,7 +79,9 @@ static void PrintUsage(const char* argv0) {
 int main(int argc, char** argv) {
     pzip_ctx_t* ctx = NULL;
     pzip_options_t opt;
+    pzip_codec_vtable_t codec;
     pzip_encryption_vtable_t encryption;
+    std::string codecName = "zlib";
     std::string password;
     std::string archivePath;
     std::string outputDir;
@@ -91,7 +98,9 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
-        if (arg == "-p" && i + 1 < argc) {
+        if (arg == "--codec" && i + 1 < argc) {
+            codecName = argv[++i];
+        } else if (arg == "-p" && i + 1 < argc) {
             password = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
             PrintUsage(argc > 0 ? argv[0] : "pzip-unzip");
@@ -106,13 +115,27 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (archivePath.empty() || outputDir.empty()) {
+    if (archivePath.empty() || outputDir.empty() || !IsSupportedCodecName(codecName)) {
         PrintUsage(argc > 0 ? argv[0] : "pzip-unzip");
         return 2;
     }
 
     if (pzip_create(&opt, &ctx) != PZIP_OK) {
         std::fprintf(stderr, "pzip_create failed\n");
+        return 1;
+    }
+
+    pzip_status_t codecStatus = PZIP_E_INVALID_ARG;
+    if (codecName == "zlib") {
+        codecStatus = pzip_make_default_zlib_codec(&codec);
+    } else if (codecName == "zstd") {
+        codecStatus = pzip_make_default_zstd_codec(&codec);
+    } else if (codecName == "lz4") {
+        codecStatus = pzip_make_default_lz4_codec(&codec);
+    }
+    if (codecStatus != PZIP_OK || pzip_set_codec(ctx, &codec, NULL) != PZIP_OK) {
+        std::fprintf(stderr, "failed to configure codec '%s'\n", codecName.c_str());
+        pzip_destroy(ctx);
         return 1;
     }
 
