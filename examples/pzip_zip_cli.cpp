@@ -79,7 +79,7 @@ static void PrintUsage(const char* argv0) {
                  "  -p <password>      Enable password encryption\n"
                  "  -l <0-9>           zlib compression level (default: 6)\n"
                  "  -t <threads>       Worker thread count (0 = auto)\n"
-                 "  --codec <name>     Compression codec: zlib, zstd, or lz4 (default: zlib)\n"
+                 "  --codec <name>     Compression codec: zlib, zstd, or lz4 (default: zstd)\n"
                  "  --prefix <name>    Entry prefix for all inputs\n",
                  argv0);
 }
@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> inputs;
     std::string archivePath;
     std::string entryPrefix;
-    std::string codecName = "zlib";
+    std::string codecName = "zstd";
     std::string password;
     bool recursive = false;
     int compressionLevel = 6;

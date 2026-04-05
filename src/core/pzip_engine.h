@@ -86,7 +86,7 @@ class PzipEngine {
 
     static uint32_t Crc32(const uint8_t* data, size_t size);
     pzip_status_t compressOne(size_t index, std::vector<class OutputFile>* outputs) const;
-    pzip_status_t compressChunkTask(const ChunkTask& chunkTask, WriteTask* writeTask) const;
+    pzip_status_t compressChunkTask(ChunkTask* chunkTask, WriteTask* writeTask) const;
 
     pzip_status_t validateReadyForRun() const;
     void setError(int32_t code, const std::string& message) const;

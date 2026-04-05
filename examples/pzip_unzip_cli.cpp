@@ -71,7 +71,7 @@ static void PrintUsage(const char* argv0) {
     std::fprintf(stderr,
                  "Usage: %s [options] <archive.zip> <output_dir>\n"
                  "Options:\n"
-                 "  --codec <name>     Decompression codec: zlib, zstd, or lz4 (default: zlib)\n"
+                 "  --codec <name>     Decompression codec: zlib, zstd, or lz4 (default: zstd)\n"
                  "  -p <password>      Set password for decryption\n",
                  argv0);
 }
@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
     pzip_options_t opt;
     pzip_codec_vtable_t codec;
     pzip_encryption_vtable_t encryption;
-    std::string codecName = "zlib";
+    std::string codecName = "zstd";
     std::string password;
     std::string archivePath;
     std::string outputDir;

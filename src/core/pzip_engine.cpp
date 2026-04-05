@@ -7,11 +7,15 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "zlib.h"
+
+#include "codec/zstd_codec.h"
 #include "codec/zlib_codec.h"
 #include "zip/zip_writer.h"
 
@@ -195,7 +199,7 @@ PzipEngine::PzipEngine()
     m_options.max_total_input_bytes = kDefaultMaxInputBytes;
     m_encryptionConfig.abi_version = PZIP_ABI_VERSION;
 
-    const pzip_codec_vtable_t defaultVtable = codec::CreateZlibCodecVtable();
+    const pzip_codec_vtable_t defaultVtable = codec::CreateZstdCodecVtable();
     setCodec(&defaultVtable, NULL);
 }
 
@@ -533,6 +537,7 @@ pzip_status_t PzipEngine::run() {
              &chunkBufferPool,
              &pendingShards]() {
             ChunkTask chunkTask;
+            std::vector<uint8_t> reusableMergeBuffer;
             while (chunkQueue.pop(&chunkTask)) {
                 if (m_canceled.load()) {
                     break;
@@ -621,24 +626,26 @@ pzip_status_t PzipEngine::run() {
                 for (size_t c = 0; c < readyChunks.size(); ++c) {
                     totalBytes += readyChunks[c].size();
                 }
-                mergedChunk.m_rawData.resize(totalBytes);
-                size_t mergedOffset = 0;
+                reusableMergeBuffer.clear();
+                if (reusableMergeBuffer.capacity() < totalBytes) {
+                    reusableMergeBuffer.reserve(totalBytes);
+                }
                 for (size_t c = 0; c < readyChunks.size(); ++c) {
                     if (!readyChunks[c].empty()) {
-                        std::memcpy(&mergedChunk.m_rawData[mergedOffset],
-                                    &readyChunks[c][0],
-                                    readyChunks[c].size());
-                        mergedOffset += readyChunks[c].size();
+                        reusableMergeBuffer.insert(reusableMergeBuffer.end(), readyChunks[c].begin(),
+                                                   readyChunks[c].end());
                     }
                     chunkBufferPool.release(std::move(readyChunks[c]));
                 }
+                mergedChunk.m_rawData.swap(reusableMergeBuffer);
 
                 WriteTask writeTask;
-                const pzip_status_t status = compressChunkTask(mergedChunk, &writeTask);
+                const pzip_status_t status = compressChunkTask(&mergedChunk, &writeTask);
                 if (status != PZIP_OK) {
                     markFailed(status);
                     break;
                 }
+                reusableMergeBuffer.swap(mergedChunk.m_rawData);
                 if (!writeQueue.push(std::move(writeTask))) {
                     break;
                 }
@@ -1024,42 +1031,38 @@ std::string PzipEngine::MakeRelativeEntry(const fs::path& path, const fs::path& 
 }
 
 uint32_t PzipEngine::Crc32(const uint8_t* data, size_t size) {
-    static uint32_t table[256] = {0};
-    static bool initialized = false;
-    if (!initialized) {
-        for (uint32_t i = 0; i < 256; ++i) {
-            uint32_t c = i;
-            for (int j = 0; j < 8; ++j) {
-                c = (c & 1U) ? (0xEDB88320U ^ (c >> 1U)) : (c >> 1U);
-            }
-            table[i] = c;
-        }
-        initialized = true;
+    if (size == 0 || data == NULL) {
+        return 0;
     }
 
-    uint32_t crc = 0xFFFFFFFFU;
-    for (size_t i = 0; i < size; ++i) {
-        crc = table[(crc ^ data[i]) & 0xFFU] ^ (crc >> 8U);
+    uLong crc = ::crc32(0L, Z_NULL, 0);
+    size_t offset = 0;
+    while (offset < size) {
+        const size_t remaining = size - offset;
+        const uInt chunk = static_cast<uInt>(
+            std::min<size_t>(remaining, static_cast<size_t>(std::numeric_limits<uInt>::max())));
+        crc = ::crc32(crc, reinterpret_cast<const Bytef*>(data + offset), chunk);
+        offset += static_cast<size_t>(chunk);
     }
-    return crc ^ 0xFFFFFFFFU;
+    return static_cast<uint32_t>(crc);
 }
 
-pzip_status_t PzipEngine::compressChunkTask(const ChunkTask& chunkTask, WriteTask* writeTask) const {
-    if (writeTask == NULL || chunkTask.m_fileIndex >= m_files.size()) {
+pzip_status_t PzipEngine::compressChunkTask(ChunkTask* chunkTask, WriteTask* writeTask) const {
+    if (chunkTask == NULL || writeTask == NULL || chunkTask->m_fileIndex >= m_files.size()) {
         return PZIP_E_INVALID_ARG;
     }
 
     OutputFile* outFile = &writeTask->m_output;
-    writeTask->m_fileIndex = chunkTask.m_fileIndex;
-    outFile->m_entryName = m_files[chunkTask.m_fileIndex].m_entryName;
-    outFile->m_uncompressedSize = static_cast<uint32_t>(chunkTask.m_rawData.size() & 0xffffffffU);
-    outFile->m_crc32 = Crc32(chunkTask.m_rawData.empty() ? NULL : &chunkTask.m_rawData[0],
-                             chunkTask.m_rawData.size());
+    writeTask->m_fileIndex = chunkTask->m_fileIndex;
+    outFile->m_entryName = m_files[chunkTask->m_fileIndex].m_entryName;
+    outFile->m_uncompressedSize = static_cast<uint32_t>(chunkTask->m_rawData.size() & 0xffffffffU);
+    outFile->m_crc32 = Crc32(chunkTask->m_rawData.empty() ? NULL : &chunkTask->m_rawData[0],
+                             chunkTask->m_rawData.size());
     m_timeProvider.fillDosDateTime(&outFile->m_dosTime, &outFile->m_dosDate);
 
     if (m_codec.m_vtable.compress == NULL || m_codec.m_instance == NULL) {
         outFile->m_method = 0;
-        outFile->m_payload = chunkTask.m_rawData;
+        outFile->m_payload.swap(chunkTask->m_rawData);
         return PZIP_OK;
     }
 
@@ -1067,9 +1070,9 @@ pzip_status_t PzipEngine::compressChunkTask(const ChunkTask& chunkTask, WriteTas
         return PZIP_E_NOT_SUPPORTED;
     }
 
-    size_t dstCap = chunkTask.m_rawData.size();
+    size_t dstCap = chunkTask->m_rawData.size();
     if (m_codec.m_vtable.bound != NULL) {
-        dstCap = m_codec.m_vtable.bound(m_codec.m_instance, chunkTask.m_rawData.size());
+        dstCap = m_codec.m_vtable.bound(m_codec.m_instance, chunkTask->m_rawData.size());
     }
     if (dstCap == 0) {
         dstCap = 1;
@@ -1079,8 +1082,8 @@ pzip_status_t PzipEngine::compressChunkTask(const ChunkTask& chunkTask, WriteTas
     size_t dstSize = 0;
     pzip_status_t status =
         m_codec.m_vtable.compress(m_codec.m_instance,
-                                  chunkTask.m_rawData.empty() ? NULL : &chunkTask.m_rawData[0],
-                                  chunkTask.m_rawData.size(),
+                                  chunkTask->m_rawData.empty() ? NULL : &chunkTask->m_rawData[0],
+                                  chunkTask->m_rawData.size(),
                                   compressed.empty() ? NULL : &compressed[0],
                                   compressed.size(),
                                   &dstSize);
@@ -1088,9 +1091,9 @@ pzip_status_t PzipEngine::compressChunkTask(const ChunkTask& chunkTask, WriteTas
         return PZIP_E_CODEC;
     }
 
-    if (dstSize >= chunkTask.m_rawData.size()) {
+    if (dstSize >= chunkTask->m_rawData.size()) {
         outFile->m_method = 0;
-        outFile->m_payload = chunkTask.m_rawData;
+        outFile->m_payload.swap(chunkTask->m_rawData);
         return PZIP_OK;
     }
 

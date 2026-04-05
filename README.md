@@ -2,7 +2,9 @@
 
 libpzip 是一个以 C API 对外暴露的 ZIP 打包库，内部使用并行流水线执行读、压缩和写入。
 
-当前内置的默认 codec：
+库默认压缩算法为 `zstd`（默认级别）。
+
+当前内置可选 codec：
 
 - zlib
 - zstd
@@ -11,7 +13,7 @@ libpzip 是一个以 C API 对外暴露的 ZIP 打包库，内部使用并行流
 其中：
 
 - zlib 使用标准 ZIP method 8
-- zstd 使用 ZIP method 93
+- zstd 使用 ZIP method 93（默认）
 - lz4 使用 pzip 自定义 method，仅保证 libpzip 自身可读写，不承诺与通用 ZIP 工具互操作
 
 ## CLI 示例

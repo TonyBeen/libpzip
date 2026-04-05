@@ -51,9 +51,9 @@
 
 ### 2.3 默认算法与外部算法
 
-- 库内置默认 `zlib` 编解码能力（压缩/解压），由 `third_party/zlib` 提供。
-- 未显式设置 codec 时，默认使用 zlib deflate（ZIP method=8）。
-- 通过 `pzip_set_codec` 可注入外部算法并覆盖默认 zlib。
+- 库内置 `zlib`、`zstd`、`lz4` 编解码能力。
+- 未显式设置 codec 时，默认使用 zstd（ZIP method=93）。
+- 通过 `pzip_set_codec` 可注入外部算法并覆盖默认 codec。
 - 可通过 `pzip_make_default_zlib_codec` 获取默认 zlib 的 codec 函数表。
 - 已提供 `pzip_make_default_zstd_codec`，可显式切换到 zstd（ZIP method=93）。
 - 已提供 `pzip_make_default_lz4_codec`，使用 `pzip` 自定义 method 写入归档；可通过 C API 或示例 CLI 显式启用。

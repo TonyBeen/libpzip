@@ -1,6 +1,6 @@
 # libpzip 性能分析指引
 
-本文档整理了 `libpzip` 当前用于定位压缩性能瓶颈的常用命令、推荐执行顺序，以及如何根据 `perf` 输出判断瓶颈主要落在压缩、同步还是 I/O。
+本文档整理了 `libpzip` 当前用于定位压缩性能瓶颈的常用命令、推荐执行顺序，以及如何根据 `perf` 输出判断瓶颈主要落在压缩、同步还是 I/O。本文示例默认使用 `lz4` codec 进行测试。
 
 ## 1. 目标
 
@@ -30,13 +30,13 @@
 先看整体 CPU 利用率、上下文切换、IPC、缓存失效率。
 
 ```bash
-sudo perf stat -d -- ./pzip-zip music.zip /mnt/disk/Music/ -r
+sudo perf stat -d -- ./pzip-zip --codec lz4 music.zip /home/eular/VSCode/music/ -r
 ```
 
 若要针对当前构建目录做快速试验，可使用：
 
 ```bash
-sudo perf stat -d -- ./pzip-zip build.zip ./build -r
+sudo perf stat -d -- ./pzip-zip --codec lz4 build.zip ./build -r
 ```
 
 关注这些指标：
@@ -52,19 +52,19 @@ sudo perf stat -d -- ./pzip-zip build.zip ./build -r
 当需要知道“时间到底花在什么函数上”时，执行：
 
 ```bash
-sudo perf record -F 999 -g --call-graph dwarf -- ./pzip-zip build.zip ./build -r
+sudo perf record -F 999 -g --call-graph dwarf -- ./pzip-zip --codec lz4 build.zip ./build -r
 sudo perf report --stdio | head -120
 ```
 
 如果只想筛出关键符号：
 
 ```bash
-sudo perf report --stdio | grep -E "BlockingQueue|futex|pthread_cond|longest_match|deflate_slow|Crc32|writeEntry|writev"
+sudo perf report --stdio | grep -E "BlockingQueue|futex|pthread_cond|LZ4_compress_default|LZ4_decompress_safe|Crc32|writeEntry|writev"
 ```
 
 常见判断方式：
 
-- `longest_match`、`deflate_slow` 很高：压缩算法本身是主瓶颈。
+- `LZ4_compress_default`、`LZ4_decompress_safe` 很高：LZ4 编解码本身是主瓶颈。
 - `BlockingQueue`、`pthread_cond_wait`、`futex` 很高：队列或同步等待开销偏大。
 - `writev`、`vfs_writev`、`ext4_*` 很高：写磁盘路径更重。
 - `read`、`page_fault`、文件系统函数很高：读路径或页缓存行为值得关注。
@@ -74,7 +74,7 @@ sudo perf report --stdio | grep -E "BlockingQueue|futex|pthread_cond|longest_mat
 当怀疑线程同步、条件变量或 futex 导致吞吐下降时，执行：
 
 ```bash
-sudo perf record -e sched:sched_switch,futex:* -g -- ./pzip-zip build.zip ./build -r
+sudo perf record -e sched:sched_switch,futex:* -g -- ./pzip-zip --codec lz4 build.zip ./build -r
 sudo perf report --stdio | head -120
 ```
 
@@ -101,9 +101,8 @@ sudo perf report --stdio | head -120
 
 反之，如果热点主要集中在压缩函数，如：
 
-- `longest_match`
-- `deflate_slow`
-- `compress_block`
+- `LZ4_compress_default`
+- `LZ4_decompress_safe`
 
 则优先级应放在 codec 和压缩策略，而不是队列替换。
 
@@ -133,7 +132,7 @@ Check IO/CPU overload!
 
 ## 5. 针对当前项目的经验结论
 
-结合当前 `libpzip` 的一次实测结果：
+结合当前 `libpzip` 过往基于 zlib 的一次实测结果：
 
 - `longest_match` 约 `53%`
 - `deflate_slow` 约 `24%`
@@ -143,7 +142,7 @@ Check IO/CPU overload!
 
 这类画像通常表示：
 
-- 主要瓶颈在 `zlib deflate` 的压缩路径。
+- 主要瓶颈在 codec 算法本身（该样本为 `zlib deflate`）。
 - `BlockingQueue` 不是主要瓶颈。
 - 直接替换为 `moodycamel::ConcurrentQueue` 大概率不是高回报优化项。
 
@@ -151,7 +150,7 @@ Check IO/CPU overload!
 
 若热点与上述画像接近，建议按如下顺序优化：
 
-1. 先检查 `zlib` 压缩级别是否过高。
+1. 先确认当前测试 codec（如 `lz4`）是否符合目标场景，再决定是否切换算法。
 2. 评估是否切换为更偏吞吐的 codec，例如 `zstd`。
 3. 评估 `Crc32` 和内存搬运是否有重复扫描或拷贝。
 4. 最后再考虑替换队列实现。
@@ -179,19 +178,19 @@ Check IO/CPU overload!
 
 ```bash
 # 总览 CPU / IPC / 上下文切换 / cache miss
-sudo perf stat -d -- ./pzip-zip music.zip /mnt/disk/Music/ -r
+sudo perf stat -d -- ./pzip-zip --codec lz4 music.zip /mnt/disk/Music/ -r
 
 # 录制热点调用栈
-sudo perf record -F 999 -g --call-graph dwarf -- ./pzip-zip build.zip ./build -r
+sudo perf record -F 999 -g --call-graph dwarf -- ./pzip-zip --codec lz4 build.zip ./build -r
 
 # 查看热点报告
 sudo perf report --stdio | head -120
 
 # 仅筛关键热点
-sudo perf report --stdio | grep -E "BlockingQueue|futex|pthread_cond|longest_match|deflate_slow|Crc32|writeEntry|writev"
+sudo perf report --stdio | grep -E "BlockingQueue|futex|pthread_cond|LZ4_compress_default|LZ4_decompress_safe|Crc32|writeEntry|writev"
 
 # 专门查看调度与 futex 等待
-sudo perf record -e sched:sched_switch,futex:* -g -- ./pzip-zip build.zip ./build -r
+sudo perf record -e sched:sched_switch,futex:* -g -- ./pzip-zip --codec lz4 build.zip ./build -r
 sudo perf report --stdio | head -120
 ```
 
