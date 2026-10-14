@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdint.h>
 
 #include <cstdio>
@@ -5,6 +6,7 @@
 #include <cstring>
 #include <new>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ghc/filesystem.hpp"
@@ -12,76 +14,31 @@
 
 namespace fs = ghc::filesystem;
 
-struct XorEncryptionCtx {
-    std::string m_password;
-};
-
-static void* CreateXorEncryption(void* user) {
-    const char* password = reinterpret_cast<const char*>(user);
-    XorEncryptionCtx* ctx = new (std::nothrow) XorEncryptionCtx();
-    if (ctx == NULL) {
-        return NULL;
-    }
-    ctx->m_password = password == NULL ? "" : password;
-    if (ctx->m_password.empty()) {
-        delete ctx;
-        return NULL;
-    }
-    return ctx;
-}
-
-static void DestroyXorEncryption(void* encryptionCtx) {
-    XorEncryptionCtx* ctx = reinterpret_cast<XorEncryptionCtx*>(encryptionCtx);
-    delete ctx;
-}
-
-static pzip_status_t XorTransform(void* encryptionCtx, const uint8_t* src, size_t srcSize,
-                                  uint8_t* dst, size_t dstCap, size_t* dstSize) {
-    if (encryptionCtx == NULL || dstSize == NULL || (srcSize > 0 && (src == NULL || dst == NULL))) {
-        return PZIP_E_INVALID_ARG;
-    }
-    if (dstCap < srcSize) {
-        return PZIP_E_NO_MEMORY;
-    }
-
-    XorEncryptionCtx* ctx = reinterpret_cast<XorEncryptionCtx*>(encryptionCtx);
-    const size_t keySize = ctx->m_password.size();
-    if (keySize == 0) {
-        return PZIP_E_INVALID_ARG;
-    }
-
-    for (size_t i = 0; i < srcSize; ++i) {
-        dst[i] = static_cast<uint8_t>(src[i] ^ static_cast<uint8_t>(ctx->m_password[i % keySize]));
-    }
-    *dstSize = srcSize;
-    return PZIP_OK;
-}
-
-static size_t XorBound(void* encryptionCtx, size_t srcSize) {
-    (void)encryptionCtx;
-    return srcSize;
-}
-
-static const char* XorName(void* encryptionCtx) {
-    (void)encryptionCtx;
-    return "xor-password";
-}
-
 static bool IsSupportedCodecName(const std::string& codecName) {
     return codecName == "zlib" || codecName == "zstd" || codecName == "lz4";
 }
 
 static void PrintUsage(const char* argv0) {
     std::fprintf(stderr,
-                 "Usage: %s [options] <archive.zip> <input1> [input2 ...]\n"
+                 "Usage:\n"
+                 "  Create:  %s [options] <archive.zip> <input1> [input2 ...]\n"
+                 "  Append:  %s [options] -a <archive.zip> <input1> [input2 ...]\n"
+                 "  Delete:  %s [options] -d <entry> [-d ...] <archive.zip>\n"
+                 "  Rename:  %s [options] --rename <old> <new> <archive.zip>\n"
+                 "  Modify:  %s [options] [-a] [-d <entry>] [--rename <old> <new>] <archive.zip> [inputs...]\n"
+                 "\n"
                  "Options:\n"
-                 "  -r                 Recursively add directory inputs\n"
-                 "  -p <password>      Enable password encryption\n"
-                 "  -l <0-9>           zlib compression level (default: 6)\n"
-                 "  -t <threads>       Worker thread count (0 = auto)\n"
-                 "  --codec <name>     Compression codec: zlib, zstd, or lz4 (default: zstd)\n"
-                 "  --prefix <name>    Entry prefix for all inputs\n",
-                 argv0);
+                 "  -a, --append             Append to existing archive (creates if not existing)\n"
+                 "  -d, --delete <entry>     Delete specified entry from archive (use with -r for dir)\n"
+                 "  -r                       Recursively add directory inputs / recursive delete\n"
+                 "  --rename <old> <new>     Rename entry inside archive\n"
+                 "  -p <password>            Enable password encryption\n"
+                 "  --crypto <mode>          Crypto mode: aes256 (default), zipcrypto, or aes128\n"
+                 "  -l <0-9>                 zlib compression level (default: 6)\n"
+                 "  -t <threads>             Worker thread count (0 = auto)\n"
+                 "  --codec <name>           Compression codec: zlib, zstd, or lz4 (default: zstd)\n"
+                 "  --prefix <name>          Entry prefix for all inputs\n",
+                 argv0, argv0, argv0, argv0, argv0);
 }
 
 static bool AddNonRecursivePath(pzip_ctx_t* ctx, const fs::path& input, const std::string& prefix) {
@@ -107,14 +64,17 @@ int main(int argc, char** argv) {
     pzip_ctx_t* ctx = NULL;
     pzip_options_t opt;
     pzip_codec_vtable_t codec;
-    pzip_encryption_vtable_t encryption;
     std::vector<std::string> inputs;
+    std::vector<std::string> deleteEntries;
+    std::vector<std::pair<std::string, std::string>> renamePairs;
     std::string archivePath;
     std::string entryPrefix;
     std::string codecName = "zstd";
+    std::string cryptoName = "aes256";
     std::string password;
     bool recursive = false;
-    int compressionLevel = 6;
+    bool appendRequested = false;
+    int32_t compressionLevel = 6;
     bool compressionLevelExplicit = false;
     int32_t errCode = 0;
     const char* errMsg = NULL;
@@ -127,14 +87,23 @@ int main(int argc, char** argv) {
     opt.max_file_count = 1000000U;
     opt.max_total_input_bytes = 1ULL << 40;
 
-    for (int i = 1; i < argc; ++i) {
+    for (int32_t i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
         if (arg == "-r") {
             recursive = true;
+        } else if (arg == "-a" || arg == "--append") {
+            appendRequested = true;
+        } else if ((arg == "-d" || arg == "--delete") && i + 1 < argc) {
+            deleteEntries.push_back(argv[++i]);
+        } else if (arg == "--rename" && i + 2 < argc) {
+            renamePairs.emplace_back(argv[i + 1], argv[i + 2]);
+            i += 2;
         } else if (arg == "-p" && i + 1 < argc) {
             password = argv[++i];
+        } else if (arg == "--crypto" && i + 1 < argc) {
+            cryptoName = argv[++i];
         } else if (arg == "-l" && i + 1 < argc) {
-            compressionLevel = std::atoi(argv[++i]);
+            compressionLevel = static_cast<int32_t>(std::atoi(argv[++i]));
             compressionLevelExplicit = true;
         } else if (arg == "-t" && i + 1 < argc) {
             opt.thread_count = static_cast<uint32_t>(std::atoi(argv[++i]));
@@ -152,8 +121,43 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (archivePath.empty() || inputs.empty() || compressionLevel < 0 || compressionLevel > 9 ||
+    pzip_crypto_mode_t cryptoMode = PZIP_CRYPTO_AES256;
+    if (cryptoName == "aes256") {
+        cryptoMode = PZIP_CRYPTO_AES256;
+    } else if (cryptoName == "zipcrypto") {
+        cryptoMode = PZIP_CRYPTO_ZIPCRYPTO;
+    } else if (cryptoName == "aes128") {
+        cryptoMode = PZIP_CRYPTO_AES128;
+    } else {
+        std::fprintf(stderr, "unsupported --crypto mode '%s', expected aes256, zipcrypto, or aes128\n",
+                     cryptoName.c_str());
+        return 2;
+    }
+
+    pzip_open_mode_t openMode = PZIP_MODE_CREATE;
+    if (!deleteEntries.empty() || !renamePairs.empty()) {
+        openMode = PZIP_MODE_MODIFY;
+    } else if (appendRequested) {
+        openMode = PZIP_MODE_APPEND;
+    }
+
+    if (archivePath.empty() || compressionLevel < 0 || compressionLevel > 9 ||
         !IsSupportedCodecName(codecName)) {
+        PrintUsage(argc > 0 ? argv[0] : "pzip-zip");
+        return 2;
+    }
+
+    if (openMode == PZIP_MODE_CREATE && inputs.empty()) {
+        PrintUsage(argc > 0 ? argv[0] : "pzip-zip");
+        return 2;
+    }
+
+    if (openMode == PZIP_MODE_APPEND && inputs.empty()) {
+        PrintUsage(argc > 0 ? argv[0] : "pzip-zip");
+        return 2;
+    }
+
+    if (openMode == PZIP_MODE_MODIFY && inputs.empty() && deleteEntries.empty() && renamePairs.empty()) {
         PrintUsage(argc > 0 ? argv[0] : "pzip-zip");
         return 2;
     }
@@ -192,28 +196,51 @@ int main(int argc, char** argv) {
     }
 
     if (!password.empty()) {
-        std::memset(&encryption, 0, sizeof(encryption));
-        encryption.abi_version = PZIP_ABI_VERSION;
-        encryption.algorithm_id = 1;
-        encryption.flags = PZIP_ENCRYPTION_FLAG_STREAM;
-        encryption.create = &CreateXorEncryption;
-        encryption.destroy = &DestroyXorEncryption;
-        encryption.encrypt = &XorTransform;
-        encryption.decrypt = &XorTransform;
-        encryption.bound = &XorBound;
-        encryption.name = &XorName;
-        if (pzip_set_encryption(ctx, &encryption, const_cast<char*>(password.c_str())) != PZIP_OK ||
-            pzip_set_encryption_enabled(ctx, 1) != PZIP_OK) {
-            std::fprintf(stderr, "failed to enable encryption\n");
+        if (pzip_set_password(ctx, password.c_str()) != PZIP_OK ||
+            pzip_set_crypto_mode(ctx, cryptoMode) != PZIP_OK) {
+            std::fprintf(stderr, "failed to configure password encryption\n");
             pzip_destroy(ctx);
             return 1;
         }
     }
 
-    if (pzip_open_archive(ctx, archivePath.c_str()) != PZIP_OK) {
-        std::fprintf(stderr, "failed to open output archive\n");
+    if (pzip_open_archive_mode(ctx, archivePath.c_str(), openMode) != PZIP_OK) {
+        if (pzip_last_error(ctx, &errCode, &errMsg) == PZIP_OK) {
+            std::fprintf(stderr, "failed to open archive '%s': code=%" PRId32 " msg=%s\n",
+                         archivePath.c_str(), errCode, errMsg != NULL ? errMsg : "<null>");
+        } else {
+            std::fprintf(stderr, "failed to open archive '%s'\n", archivePath.c_str());
+        }
         pzip_destroy(ctx);
         return 1;
+    }
+
+    for (size_t i = 0; i < deleteEntries.size(); ++i) {
+        const int32_t recFlag = recursive ? 1 : 0;
+        if (pzip_remove_entry(ctx, deleteEntries[i].c_str(), recFlag) != PZIP_OK) {
+            if (pzip_last_error(ctx, &errCode, &errMsg) == PZIP_OK) {
+                std::fprintf(stderr, "failed to mark entry '%s' for deletion: code=%" PRId32 " msg=%s\n",
+                             deleteEntries[i].c_str(), errCode, errMsg != NULL ? errMsg : "<null>");
+            } else {
+                std::fprintf(stderr, "failed to mark entry '%s' for deletion\n", deleteEntries[i].c_str());
+            }
+            pzip_destroy(ctx);
+            return 1;
+        }
+    }
+
+    for (size_t i = 0; i < renamePairs.size(); ++i) {
+        if (pzip_rename_entry(ctx, renamePairs[i].first.c_str(), renamePairs[i].second.c_str()) != PZIP_OK) {
+            if (pzip_last_error(ctx, &errCode, &errMsg) == PZIP_OK) {
+                std::fprintf(stderr, "failed to rename entry '%s' -> '%s': code=%" PRId32 " msg=%s\n",
+                             renamePairs[i].first.c_str(), renamePairs[i].second.c_str(),
+                             errCode, errMsg != NULL ? errMsg : "<null>");
+            } else {
+                std::fprintf(stderr, "failed to rename entry '%s'\n", renamePairs[i].first.c_str());
+            }
+            pzip_destroy(ctx);
+            return 1;
+        }
     }
 
     for (size_t i = 0; i < inputs.size(); ++i) {
@@ -226,7 +253,7 @@ int main(int argc, char** argv) {
         }
         if (!ok) {
             if (pzip_last_error(ctx, &errCode, &errMsg) == PZIP_OK) {
-                std::fprintf(stderr, "failed to add input '%s': code=%d msg=%s\n", inputs[i].c_str(),
+                std::fprintf(stderr, "failed to add input '%s': code=%" PRId32 " msg=%s\n", inputs[i].c_str(),
                              errCode, errMsg != NULL ? errMsg : "<null>");
             } else {
                 std::fprintf(stderr, "failed to add input '%s'\n", inputs[i].c_str());
@@ -238,7 +265,8 @@ int main(int argc, char** argv) {
 
     if (pzip_run(ctx) != PZIP_OK) {
         if (pzip_last_error(ctx, &errCode, &errMsg) == PZIP_OK) {
-            std::fprintf(stderr, "zip failed: code=%d msg=%s\n", errCode, errMsg != NULL ? errMsg : "<null>");
+            std::fprintf(stderr, "zip failed: code=%" PRId32 " msg=%s\n", errCode,
+                         errMsg != NULL ? errMsg : "<null>");
         } else {
             std::fprintf(stderr, "zip failed\n");
         }
