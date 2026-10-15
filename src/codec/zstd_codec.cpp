@@ -32,7 +32,14 @@ void Destroy(void* codecCtx) {
 
 pzip_status_t Compress(void* codecCtx, const uint8_t* src, size_t srcSize, uint8_t* dst,
                        size_t dstCap, size_t* dstSize) {
-    if (dstSize == NULL || dst == NULL || src == NULL) {
+    if (dstSize == NULL) {
+        return PZIP_E_INVALID_ARG;
+    }
+    if (srcSize == 0) {
+        *dstSize = 0;
+        return PZIP_OK;
+    }
+    if (dst == NULL || src == NULL) {
         return PZIP_E_INVALID_ARG;
     }
 
@@ -49,7 +56,14 @@ pzip_status_t Compress(void* codecCtx, const uint8_t* src, size_t srcSize, uint8
 pzip_status_t Decompress(void* codecCtx, const uint8_t* src, size_t srcSize, uint8_t* dst,
                          size_t dstCap, size_t* dstSize) {
     (void)codecCtx;
-    if (dstSize == NULL || dst == NULL || src == NULL) {
+    if (dstSize == NULL) {
+        return PZIP_E_INVALID_ARG;
+    }
+    if (srcSize == 0) {
+        *dstSize = 0;
+        return PZIP_OK;
+    }
+    if (dst == NULL || src == NULL) {
         return PZIP_E_INVALID_ARG;
     }
 

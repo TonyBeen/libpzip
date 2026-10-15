@@ -166,9 +166,7 @@ int main(void) {
         return 11;
     }
 
-    for (i = 0; i < 10; ++i) {
-        opt.reserve[i] = 0;
-    }
+    memset(&opt, 0, sizeof(opt));
     opt.abi_version = PZIP_ABI_VERSION;
     opt.thread_count = 4;
     opt.chunk_size_kb = 4;

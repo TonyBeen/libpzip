@@ -11,13 +11,17 @@ namespace {
 
 static const uint16_t kPzipLz4Method = 0x4C34u;
 
+struct Lz4CodecContext {
+    char dummy;
+};
+
 void* Create(void* user) {
     (void)user;
-    return reinterpret_cast<void*>(1);
+    return new (std::nothrow) Lz4CodecContext();
 }
 
 void Destroy(void* codecCtx) {
-    (void)codecCtx;
+    delete static_cast<Lz4CodecContext*>(codecCtx);
 }
 
 pzip_status_t Compress(void* codecCtx, const uint8_t* src, size_t srcSize, uint8_t* dst,

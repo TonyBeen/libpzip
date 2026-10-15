@@ -138,7 +138,12 @@ set(PZIP_SOURCES
     src/codec/zstd_codec.cpp
     src/io/file_reader.cpp
     src/platform/time_provider.cpp
+    src/platform/file_ops.cpp
+    src/zip/zip_reader.cpp
     src/zip/zip_writer.cpp
+    src/crypto/sha1.cpp
+    src/crypto/aes.cpp
+    src/crypto/zip_crypto.cpp
 )
 
 add_library(pzip_obj OBJECT ${PZIP_SOURCES})
@@ -158,6 +163,9 @@ target_include_directories(pzip_obj
         ${CMAKE_CURRENT_BINARY_DIR}/third_party/zstd/build/cmake/lib
 )
 target_compile_definitions(pzip_obj PRIVATE PZIP_IMPLEMENTATION)
+if(BUILD_TESTING OR PZIP_ENABLE_DEBUG)
+    target_compile_definitions(pzip_obj PRIVATE PZIP_ENABLE_TEST_HOOKS)
+endif()
 
 if(MSVC)
     target_compile_options(pzip_obj PRIVATE /W4 /EHsc)
@@ -425,4 +433,52 @@ if(BUILD_TESTING)
     set_tests_properties(pzip_extract_pipeline PROPERTIES
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         TIMEOUT 8)
+
+    add_executable(pzip_test_security_edge_cases tests/security_edge_cases_cpp.cpp)
+    if(PZIP_BUILD_SHARED)
+        target_link_libraries(pzip_test_security_edge_cases PRIVATE pzip_shared)
+    elseif(PZIP_BUILD_STATIC)
+        target_link_libraries(pzip_test_security_edge_cases PRIVATE pzip_static)
+    endif()
+    target_include_directories(pzip_test_security_edge_cases PRIVATE include)
+    add_test(NAME pzip_security_edge_cases COMMAND pzip_test_security_edge_cases)
+    set_tests_properties(pzip_security_edge_cases PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        TIMEOUT 8)
+
+    add_executable(pzip_test_password_crypto tests/password_crypto_cpp.cpp)
+    if(PZIP_BUILD_SHARED)
+        target_link_libraries(pzip_test_password_crypto PRIVATE pzip_shared)
+    elseif(PZIP_BUILD_STATIC)
+        target_link_libraries(pzip_test_password_crypto PRIVATE pzip_static)
+    endif()
+    target_include_directories(pzip_test_password_crypto PRIVATE include)
+    add_test(NAME pzip_password_crypto COMMAND pzip_test_password_crypto)
+    set_tests_properties(pzip_password_crypto PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        TIMEOUT 8)
+
+    add_executable(pzip_test_crypto_unit tests/crypto_unit_test.cpp)
+    if(PZIP_BUILD_SHARED)
+        target_link_libraries(pzip_test_crypto_unit PRIVATE pzip_shared)
+    elseif(PZIP_BUILD_STATIC)
+        target_link_libraries(pzip_test_crypto_unit PRIVATE pzip_static)
+    endif()
+    target_include_directories(pzip_test_crypto_unit PRIVATE include src)
+    add_test(NAME pzip_crypto_unit COMMAND pzip_test_crypto_unit)
+    set_tests_properties(pzip_crypto_unit PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        TIMEOUT 8)
+
+    add_executable(pzip_test_archive_modify tests/test_archive_modify_cpp.cpp)
+    if(PZIP_BUILD_SHARED)
+        target_link_libraries(pzip_test_archive_modify PRIVATE pzip_shared)
+    elseif(PZIP_BUILD_STATIC)
+        target_link_libraries(pzip_test_archive_modify PRIVATE pzip_static)
+    endif()
+    target_include_directories(pzip_test_archive_modify PRIVATE include third_party/filesystem/include)
+    add_test(NAME pzip_archive_modify COMMAND pzip_test_archive_modify)
+    set_tests_properties(pzip_archive_modify PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        TIMEOUT 15)
 endif()
